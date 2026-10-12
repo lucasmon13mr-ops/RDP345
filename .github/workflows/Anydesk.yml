@@ -1,0 +1,109 @@
+name: Windows Cloud PC - Anydesk Melhorado
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Iniciando Sistema Reforçado
+    runs-on: windows-latest
+    timeout-minutes: 10080
+    env:
+      PROCESSOR_COUNT: 8
+      OPENGL: "1"
+      GITHUB_PRESERVE_WORKFLOW: true
+      MEMORY_GB: 32
+
+    steps:
+      - name: Baixar e Instalar Essenciais
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+          if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+            iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+          }
+
+          choco install anydesk -y --ignore-checksums
+
+          # Localiza o executável
+          $paths = @(
+            "C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
+            "C:\Program Files\AnyDesk\AnyDesk.exe",
+            "C:\ProgramData\chocolatey\lib\anydesk\AnyDesk.exe"
+          )
+          $anydeskPath = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $anydeskPath) {
+            Write-Host "ERRO: AnyDesk.exe não encontrado."
+            exit 1
+          }
+
+          Write-Host "AnyDesk encontrado em: $anydeskPath"
+          Set-Content -Path "anydesk_path.txt" -Value $anydeskPath
+
+      - name: Iniciar AnyDesk Como Serviço
+        run: |
+          $anydeskPath = Get-Content "anydesk_path.txt"
+
+          # Instala como serviço do Windows
+          & "$anydeskPath" --install-service
+          Start-Sleep -Seconds 5
+
+          # Inicia o serviço
+          Start-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
+
+          # Verifica se subiu
+          $svc = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+          if ($svc -and $svc.Status -eq "Running") {
+            Write-Host "AnyDesk rodando como serviço."
+          } else {
+            # Fallback: roda direto com --nogui
+            Write-Host "Serviço falhou — tentando --nogui..."
+            Start-Process -FilePath "$anydeskPath" -ArgumentList "--nogui" -WindowStyle Hidden
+            Start-Sleep -Seconds 10
+          }
+
+      - name: Pegar ID do AnyDesk
+        run: |
+          $anydeskPath = Get-Content "anydesk_path.txt"
+          Start-Sleep -Seconds 5
+          $id = & "$anydeskPath" --get-id 2>&1
+          Write-Host "========================================="
+          Write-Host "SEU ID ANYDESK: $id"
+          Write-Host "========================================="
+
+      - name: Monitoramento Contínuo e Reinício Automático
+        run: |
+          $anydeskPath = Get-Content "anydesk_path.txt"
+          $restartCount = 0
+
+          while ($true) {
+            $svc = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+            $proc = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+
+            if (($svc -and $svc.Status -eq "Running") -or $proc) {
+              Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] AnyDesk ativo."
+            } else {
+              $restartCount++
+              Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] AnyDesk offline — reiniciando (tentativa $restartCount)..."
+              Start-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+              if (-not (Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq "Running"})) {
+                Start-Process -FilePath "$anydeskPath" -ArgumentList "--nogui" -WindowStyle Hidden
+              }
+              Start-Sleep -Seconds 15
+            }
+            Start-Sleep -Seconds 60
+          }
+
+      - name: Manter Sistema Ativo
+        run: |
+          Start-Sleep -Seconds 604800
+
+      - name: Limpeza Segura
+        if: always()
+        run: |
+          Stop-Service -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
+          Write-Host "Limpeza finalizada."
