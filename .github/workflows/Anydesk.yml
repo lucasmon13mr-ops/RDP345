@@ -1,4 +1,4 @@
-name: Windows Cloud PC - Anydesk Melhorado
+name: Windows 11 GPU
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
       PROCESSOR_COUNT: 8
       OPENGL: "1"
       GITHUB_PRESERVE_WORKFLOW: true
-      MEMORY_GB: 32
+      MEMORY_GB: 16
 
     steps:
       - name: Baixar e Instalar Essenciais
@@ -26,7 +26,6 @@ jobs:
 
           choco install anydesk -y --ignore-checksums
 
-          # Localiza o executável
           $paths = @(
             "C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
             "C:\Program Files\AnyDesk\AnyDesk.exe",
@@ -46,32 +45,41 @@ jobs:
         run: |
           $anydeskPath = Get-Content "anydesk_path.txt"
 
-          # Instala como serviço do Windows
           & "$anydeskPath" --install-service
           Start-Sleep -Seconds 5
 
-          # Inicia o serviço
           Start-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 10
 
-          # Verifica se subiu
           $svc = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
           if ($svc -and $svc.Status -eq "Running") {
             Write-Host "AnyDesk rodando como serviço."
           } else {
-            # Fallback: roda direto com --nogui
             Write-Host "Serviço falhou — tentando --nogui..."
             Start-Process -FilePath "$anydeskPath" -ArgumentList "--nogui" -WindowStyle Hidden
             Start-Sleep -Seconds 10
           }
 
-      - name: Pegar ID do AnyDesk
+      - name: Pegar ID e Senha do AnyDesk
         run: |
           $anydeskPath = Get-Content "anydesk_path.txt"
-          Start-Sleep -Seconds 5
-          $id = & "$anydeskPath" --get-id 2>&1
+
+          Start-Sleep -Seconds 20
+
+          $id = ""
+          for ($i = 0; $i -lt 5; $i++) {
+            $id = & "$anydeskPath" --get-id 2>&1
+            if ($id -match "\d{9,}") { break }
+            Write-Host "Aguardando registro... tentativa $($i+1)"
+            Start-Sleep -Seconds 10
+          }
+
+          $senha = "Acesso@2024"
+          echo $senha | & "$anydeskPath" --set-password
+
           Write-Host "========================================="
           Write-Host "SEU ID ANYDESK: $id"
+          Write-Host "SENHA: $senha"
           Write-Host "========================================="
 
       - name: Monitoramento Contínuo e Reinício Automático
