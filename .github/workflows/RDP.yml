@@ -12,13 +12,27 @@ jobs:
       PROCESSOR_COUNT: 8
       OPENGL: "1"
       GITHUB_PRESERVE_WORKFLOW: true
-      MEMORY_GB: 16
+      MEMORY_GB: 128
 
     steps:
       - name: Baixar e Instalar Essenciais
         run: |
-          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/7eiczvgil84czu55dxep3/Downloads.bat?rlkey=wzdc1wxjsph2b7r0atplmdz3p&dl=1" -OutFile "Downloads.bat" -UseBasicParsing
-          cmd /c Downloads.bat
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+          if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+            iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+          }
+
+          choco install anydesk -y --ignore-checksums
+
+          $anydeskPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          if (-not (Test-Path $anydeskPath)) {
+            $anydeskPath = "C:\ProgramData\chocolatey\lib\anydesk\AnyDesk.exe"
+          }
+
+          Set-Content -Path "start.bat" -Value "@echo off`nstart `"`" `"$anydeskPath`""
+          Write-Host "start.bat gerado em: $anydeskPath"
 
       - name: Iniciar AnyDesk
         run: |
@@ -54,6 +68,5 @@ jobs:
         if: always()
         run: |
           Stop-Process -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
-          Remove-Item Downloads.bat -Force -ErrorAction SilentlyContinue
           Remove-Item start.bat -Force -ErrorAction SilentlyContinue
           Write-Host "Limpeza finalizada."
