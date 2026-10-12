@@ -1,4 +1,4 @@
-name: Windows Anydesk Melhorado
+name: Windows Cloud PC - Anydesk Melhorado
 
 on:
   workflow_dispatch:
@@ -37,9 +37,26 @@ jobs:
 
           .\ngrok.exe config add-authtoken $env:NGROK_TOKEN
           Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
 
-          $tunnel = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+          $ready = $false
+          for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Seconds 8
+            try {
+              $tunnel = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -ErrorAction Stop
+              if ($tunnel.tunnels.Count -gt 0) {
+                $ready = $true
+                break
+              }
+            } catch {
+              Write-Host "Aguardando ngrok... tentativa $($i+1)"
+            }
+          }
+
+          if (-not $ready) {
+            Write-Host "ERRO: ngrok não subiu após 80 segundos."
+            exit 1
+          }
+
           $addr = $tunnel.tunnels[0].public_url -replace "tcp://", ""
 
           Write-Host "========================================="
@@ -55,10 +72,14 @@ jobs:
             if (-not $ngrok) {
               Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] ngrok offline — reiniciando..."
               Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-              Start-Sleep -Seconds 15
-              $tunnel = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-              $addr = $tunnel.tunnels[0].public_url -replace "tcp://", ""
-              Write-Host "NOVO ENDEREÇO: $addr"
+              Start-Sleep -Seconds 30
+              try {
+                $tunnel = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -ErrorAction Stop
+                $addr = $tunnel.tunnels[0].public_url -replace "tcp://", ""
+                Write-Host "NOVO ENDEREÇO: $addr"
+              } catch {
+                Write-Host "API ainda não disponível — aguardando próximo ciclo."
+              }
             } else {
               Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] ngrok ativo."
             }
