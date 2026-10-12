@@ -1,4 +1,4 @@
-name: - Anydesk Melhorado
+name: Windows Anydesk Melhorado
 
 on:
   workflow_dispatch:
