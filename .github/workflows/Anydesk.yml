@@ -1,4 +1,4 @@
-name: Windows 11 GPU
+name: ud PC - Anydesk Melhorado
 
 on:
   workflow_dispatch:
@@ -15,92 +15,49 @@ jobs:
       MEMORY_GB: 16
 
     steps:
-      - name: Baixar e Instalar Essenciais
+      - name: Baixar AnyDesk Portátil e Iniciar
         run: |
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-
-          if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-            iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-          }
-
-          choco install anydesk -y --ignore-checksums
-
-          $paths = @(
-            "C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
-            "C:\Program Files\AnyDesk\AnyDesk.exe",
-            "C:\ProgramData\chocolatey\lib\anydesk\AnyDesk.exe"
-          )
-          $anydeskPath = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-          if (-not $anydeskPath) {
-            Write-Host "ERRO: AnyDesk.exe não encontrado."
-            exit 1
-          }
-
-          Write-Host "AnyDesk encontrado em: $anydeskPath"
-          Set-Content -Path "anydesk_path.txt" -Value $anydeskPath
-
-      - name: Iniciar AnyDesk Como Serviço
-        run: |
-          $anydeskPath = Get-Content "anydesk_path.txt"
-
-          & "$anydeskPath" --install-service
-          Start-Sleep -Seconds 5
-
-          Start-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-
-          $svc = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
-          if ($svc -and $svc.Status -eq "Running") {
-            Write-Host "AnyDesk rodando como serviço."
-          } else {
-            Write-Host "Serviço falhou — tentando --nogui..."
-            Start-Process -FilePath "$anydeskPath" -ArgumentList "--nogui" -WindowStyle Hidden
-            Start-Sleep -Seconds 10
-          }
-
-      - name: Pegar ID e Senha do AnyDesk
-        run: |
-          $anydeskPath = Get-Content "anydesk_path.txt"
-
-          Start-Sleep -Seconds 20
-
-          $id = ""
-          for ($i = 0; $i -lt 5; $i++) {
-            $id = & "$anydeskPath" --get-id 2>&1
-            if ($id -match "\d{9,}") { break }
-            Write-Host "Aguardando registro... tentativa $($i+1)"
-            Start-Sleep -Seconds 10
-          }
-
+          # Baixa direto o exe portátil — sem instalador, sem serviço
+          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "AnyDesk.exe" -UseBasicParsing
+          
+          # Define senha antes de iniciar
           $senha = "Acesso@2024"
-          echo $senha | & "$anydeskPath" --set-password
+          
+          # Inicia em modo portátil
+          Start-Process -FilePath ".\AnyDesk.exe" -ArgumentList "--portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 30
+
+      - name: Pegar ID e Definir Senha
+        run: |
+          # Tenta pegar ID
+          $id = ""
+          for ($i = 0; $i -lt 10; $i++) {
+            $id = .\AnyDesk.exe --get-id 2>&1
+            Write-Host "Tentativa $($i+1): '$id'"
+            if ($id -match "\d{6,}") { break }
+            Start-Sleep -Seconds 15
+          }
+
+          # Define senha
+          echo "Acesso@2024" | .\AnyDesk.exe --set-password 2>&1
 
           Write-Host "========================================="
           Write-Host "SEU ID ANYDESK: $id"
-          Write-Host "SENHA: $senha"
+          Write-Host "SENHA: Acesso@2024"
           Write-Host "========================================="
 
       - name: Monitoramento Contínuo e Reinício Automático
         run: |
-          $anydeskPath = Get-Content "anydesk_path.txt"
           $restartCount = 0
-
           while ($true) {
-            $svc = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
             $proc = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-
-            if (($svc -and $svc.Status -eq "Running") -or $proc) {
-              Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] AnyDesk ativo."
-            } else {
+            if (-not $proc) {
               $restartCount++
               Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] AnyDesk offline — reiniciando (tentativa $restartCount)..."
-              Start-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
-              if (-not (Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq "Running"})) {
-                Start-Process -FilePath "$anydeskPath" -ArgumentList "--nogui" -WindowStyle Hidden
-              }
+              Start-Process -FilePath ".\AnyDesk.exe" -ArgumentList "--portable" -WindowStyle Hidden
               Start-Sleep -Seconds 15
+            } else {
+              Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] AnyDesk ativo — PID: $($proc.Id)"
             }
             Start-Sleep -Seconds 60
           }
@@ -112,6 +69,5 @@ jobs:
       - name: Limpeza Segura
         if: always()
         run: |
-          Stop-Service -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
           Write-Host "Limpeza finalizada."
